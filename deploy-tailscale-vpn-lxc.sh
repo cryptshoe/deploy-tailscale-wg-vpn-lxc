@@ -21,7 +21,7 @@ if [[ -z "$HOSTNAME" ]]; then
 fi
 
 # Prompt user for input variables
-read -rp "Path to ProtonVPN WireGuard config file (local, e.g. /root/protonvpn.conf): " VPN_CONF_PATH
+read -rp "Path to VPN WireGuard config file (local, e.g. /root/vpn.conf): " VPN_CONF_PATH
 if [[ ! -f "$VPN_CONF_PATH" ]]; then
   msg_error "VPN config file not found at $VPN_CONF_PATH"
   exit 1
@@ -63,8 +63,8 @@ msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
 
-msg_info "Copying ProtonVPN config into container..."
-pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/protonvpn.conf
+msg_info "Copying VPN config into container..."
+pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
 
 msg_info "Generating setup.sh inside container..."
 
@@ -72,7 +72,7 @@ pct exec $CTID -- bash -c "cat > /root/setup.sh" <<EOF
 #!/bin/bash
 set -e
 
-VPN_CONF="/etc/wireguard/protonvpn.conf"
+VPN_CONF="/etc/wireguard/vpn.conf"
 TS_AUTH_KEY="${TS_AUTH_KEY}"
 SUBNETS="${SUBNETS}"
 TAILSCALE_ARGS="--advertise-exit-node --advertise-routes=\$SUBNETS"
@@ -93,11 +93,11 @@ EOT
 sysctl -p /etc/sysctl.d/90-forwarding.conf
 
 if [ ! -f "\$VPN_CONF" ]; then
-  echo "ERROR: Missing ProtonVPN WireGuard config at \$VPN_CONF"
+  echo "ERROR: Missing VPN WireGuard config at \$VPN_CONF"
   exit 1
 fi
 
-systemctl enable wg-quick@protonvpn
+systemctl enable wg-quick@vpn
 
 systemctl enable --now tailscaled
 
@@ -117,9 +117,9 @@ echo "Creating tailscale-vpn-exit systemd service..."
 
 cat <<SERVICE > /etc/systemd/system/tailscale-vpn-exit.service
 [Unit]
-Description=Tailscale Exit Node with ProtonVPN backend
-After=network-online.target wg-quick@protonvpn.service tailscaled.service
-Wants=network-online.target wg-quick@protonvpn.service tailscaled.service
+Description=Tailscale Exit Node with PN backend
+After=network-online.target wg-quick@vpn.service tailscaled.service
+Wants=network-online.target wg-quick@vpn.service tailscaled.service
 
 [Service]
 Type=oneshot
@@ -150,7 +150,7 @@ pct exec $CTID -- chmod +x /root/setup.sh
 pct exec $CTID -- /root/setup.sh
 
 msg_info "Finalizing by starting VPN and Tailscale exit services..."
-pct exec $CTID -- systemctl start wg-quick@protonvpn
+pct exec $CTID -- systemctl start wg-quick@vpn
 pct exec $CTID -- systemctl start tailscaled
 pct exec $CTID -- systemctl start tailscale-vpn-exit
 
