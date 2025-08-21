@@ -23,7 +23,7 @@ This project provides an automated deployment script that creates and configures
 
 Run the deployment script directly on your Proxmox host with:
 ```
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/yourusername/yourrepo/main/deploy-tailscale-vpn-lxc.sh)"
+bash -c "$(curl -fsSL https://github.com/cryptshoe/deploy-tailscale-wg-vpn-lxc/blob/main/deploy-tailscale-vpn-lxc.sh)"
 ```
 
 You will be prompted to provide:
