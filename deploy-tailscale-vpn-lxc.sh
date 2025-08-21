@@ -1,21 +1,36 @@
 #!/usr/bin/env bash
 set -e
 
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
+
 echo "Proxmox LXC Tailscale + WireGuard VPN Node Deployment Script"
+
+# Prompt for LXC container ID and hostname
+read -rp "Enter desired LXC container ID (number, e.g. 100): " CTID
+read -rp "Enter hostname for the LXC container (e.g. tailscale-vpn-node): " HOSTNAME
+
+# Validate container ID is numeric
+if ! [[ "$CTID" =~ ^[0-9]+$ ]]; then
+  msg_error "Container ID must be a number."
+  exit 1
+fi
+
+# If hostname is empty, fallback to default
+if [[ -z "$HOSTNAME" ]]; then
+  HOSTNAME="tailscale-vpn-node"
+fi
 
 # Prompt user for input variables
 read -rp "Path to ProtonVPN WireGuard config file (local, e.g. /root/protonvpn.conf): " VPN_CONF_PATH
 if [[ ! -f "$VPN_CONF_PATH" ]]; then
-  echo "Error: VPN config file not found at $VPN_CONF_PATH"
+  msg_error "VPN config file not found at $VPN_CONF_PATH"
   exit 1
 fi
 
 read -rp "Enter your Tailscale Auth Key: " TS_AUTH_KEY
 read -rp "Enter LAN subnets to advertise (comma-separated, e.g. 192.168.0.0/24,10.0.0.0/24): " SUBNETS
 
-# Set variables for container creation
-CTID=100
-HOSTNAME="tailscale-vpn-node"
+# Default variables for container creation
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.0-1_amd64.tar.zst"
 MEMORY=512
@@ -24,7 +39,9 @@ DISK=4
 BRIDGE="vmbr0"
 UNPRIVILEGED=1
 
-echo "Creating LXC container $CTID..."
+header_info "Tailscale WireGuard VPN Node"
+
+echo "Creating LXC container $CTID with hostname $HOSTNAME..."
 
 pct create $CTID $TEMPLATE \
   --hostname $HOSTNAME \
@@ -35,21 +52,21 @@ pct create $CTID $TEMPLATE \
   --unprivileged $UNPRIVILEGED
 
 CONFIG_FILE="/etc/pve/lxc/${CTID}.conf"
-echo "Configuring container for TUN device access..."
+echo "Configuring container $CTID for TUN device access..."
 
 echo "lxc.cgroup2.devices.allow = c 10:200 rwm" >> $CONFIG_FILE
 echo "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file" >> $CONFIG_FILE
 echo "lxc.apparmor.profile = unconfined" >> $CONFIG_FILE
 echo "lxc.cap.drop =" >> $CONFIG_FILE
 
-echo "Starting container..."
+msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
 
-echo "Copying ProtonVPN config into container..."
+msg_info "Copying ProtonVPN config into container..."
 pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/protonvpn.conf
 
-echo "Generating setup.sh script inside container..."
+msg_info "Generating setup.sh inside container..."
 
 pct exec $CTID -- bash -c "cat > /root/setup.sh" <<EOF
 #!/bin/bash
@@ -128,13 +145,13 @@ systemctl enable tailscale-vpn-exit
 echo "Setup complete. Reboot the container or start services manually."
 EOF
 
-echo "Making setup script executable and running it inside container..."
+msg_info "Making setup script executable and running it inside the container..."
 pct exec $CTID -- chmod +x /root/setup.sh
 pct exec $CTID -- /root/setup.sh
 
-echo "Finalizing by starting VPN and tailscale exit services..."
+msg_info "Finalizing by starting VPN and Tailscale exit services..."
 pct exec $CTID -- systemctl start wg-quick@protonvpn
 pct exec $CTID -- systemctl start tailscaled
 pct exec $CTID -- systemctl start tailscale-vpn-exit
 
-echo "LXC container $CTID created and configured successfully!"
+msg_ok "LXC container $CTID ($HOSTNAME) created and configured successfully!"
