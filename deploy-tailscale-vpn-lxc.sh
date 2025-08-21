@@ -32,7 +32,7 @@ read -rp "Enter LAN subnets to advertise (comma-separated, e.g. 192.168.0.0/24,1
 
 # Default variables for container creation
 STORAGE="local-lvm"
-TEMPLATE="local:vztmpl/debian-12-standard_12.0-1_amd64.tar.zst"
+TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 MEMORY=512
 CPU=1
 DISK=4
