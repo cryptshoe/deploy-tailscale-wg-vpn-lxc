@@ -30,6 +30,17 @@ fi
 read -rp "Enter your Tailscale Auth Key: " TS_AUTH_KEY
 read -rp "Enter LAN subnets to advertise (comma-separated, e.g. 192.168.0.0/24,10.0.0.0/24): " SUBNETS
 
+# Prompt for root password
+read -rsp "Enter root password for the LXC container: " CT_PASSWORD
+echo
+read -rsp "Confirm root password: " CT_PASSWORD_CONFIRM
+echo
+
+if [ "$CT_PASSWORD" != "$CT_PASSWORD_CONFIRM" ]; then
+  echo "Error: Passwords do not match."
+  exit 1
+fi
+
 # Default variables for container creation
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
@@ -62,6 +73,9 @@ echo "lxc.cap.drop =" >> $CONFIG_FILE
 msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
+
+# --- Set root password inside the container ---
+pct exec $CTID -- bash -c "echo root:${CT_PASSWORD} | chpasswd"
 
 msg_info "Copying VPN config into container..."
 pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
