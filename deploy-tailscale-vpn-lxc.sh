@@ -43,7 +43,7 @@ MEMORY=512
 CPU=1
 DISK=4
 BRIDGE="vmbr0"
-UNPRIVILEGED=1
+UNPRIVILEGED=0
 
 header_info "Tailscale WireGuard VPN Node"
 
