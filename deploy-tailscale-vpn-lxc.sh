@@ -130,8 +130,8 @@ update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-curl -fsSL https://pkgs.tailscale.com/stable/${ID}\/${VER}\.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${ID}\ ${VER}\ main" | tee /etc/apt/sources.list.d/tailscale.list
+curl -fsSL https://pkgs.tailscale.com/stable/"${ID}\"/"${VER}\".noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/"${ID}\" "${VER}\" main" | tee /etc/apt/sources.list.d/tailscale.list
 
 apt-get update -qq
 apt-get install -y tailscale
