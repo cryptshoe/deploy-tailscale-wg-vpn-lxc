@@ -130,8 +130,8 @@ export LC_ALL=en_US.UTF-8
 ID=$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '"')
 VER=$(grep ^VERSION_CODENAME= /etc/os-release | cut -d= -f2 | tr -d '"')
 
-curl -fsSL https://pkgs.tailscale.com/stable/${ID}/${VER}.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${ID} ${VER} main" | tee /etc/apt/sources.list.d/tailscale.list
+curl -fsSL https://pkgs.tailscale.com/stable/${ID}\/${VER}\.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${ID}\ ${VER}\ main" | tee /etc/apt/sources.list.d/tailscale.list
 
 apt-get update -qq
 apt-get install -y tailscale
