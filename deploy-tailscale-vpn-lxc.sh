@@ -130,12 +130,12 @@ update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-if ! dig +short pkgs.tailscale.com | grep -qvE "^127\.|^0\.0\.0\.0$"; then
-  echo "[INFO] DNS resolution for pkgs.tailscale.com failed (blocked or redirected)."
-  echo "[INFO] Temporarily overriding /etc/resolv.conf with Cloudflare DNS (1.1.1.1)"
-  cp "${ORIG_RESOLV}" "${BACKUP_RESOLV}"
-  echo "nameserver 1.1.1.1" >"${ORIG_RESOLV}"
+echo "Fixing DNS temporarily..."
+# Backup original DNS resolv.conf if not backed up yet
+if [ ! -f "\$BACKUP_RESOLV" ]; then
+  cp "\$ORIG_RESOLV" "\$BACKUP_RESOLV"
 fi
+echo "nameserver 1.1.1.1" > "\$ORIG_RESOLV"
 
 # Add Tailscale package signing key and repo (adjust for your OS/Version)
 ID=$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '"')
