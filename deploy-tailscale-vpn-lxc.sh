@@ -105,6 +105,9 @@ TS_DEV="tailscale0"
 echo "Updating system and installing dependencies..."
 apt-get update && apt-get install -y curl gnupg lsb-release iptables wireguard resolvconf
 
+echo "Fixing DNS inside container temporarily..."
+pct exec $CTID -- bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
+
 echo "Installing Tailscale from official repo..."
 
 # Add Tailscale's official GPG key
