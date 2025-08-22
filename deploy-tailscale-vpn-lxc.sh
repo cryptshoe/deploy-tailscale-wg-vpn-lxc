@@ -107,11 +107,9 @@ echo "nameserver 1.1.1.1" > /etc/resolv.conf
 
 echo "Installing Tailscale from official repo..."
 
-# Add Tailscale's official GPG key
-curl -fsSL https://pkgs.tailscale.com/stable/debian/buster.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
 
-# Add the repo (adjust codename 'buster' to your Debian version inside container)
-echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian buster main" | tee /etc/apt/sources.list.d/tailscale.list
+echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" | tee /etc/apt/sources.list.d/tailscale.list
 
 apt-get update
 apt-get install -y tailscale
