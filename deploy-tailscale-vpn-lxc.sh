@@ -77,9 +77,6 @@ msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
 
-# Optional: Prevent Proxmox from overwriting resolv.conf inside container
-pct exec $CTID -- touch /etc/.pve-ignore.resolv.conf
-
 # --- Set root password inside the container ---
 pct exec $CTID -- bash -c "echo root:${CT_PASSWORD} | chpasswd"
 
