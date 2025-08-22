@@ -83,6 +83,9 @@ pct exec $CTID -- mkdir -p /etc/wireguard
 msg_info "Copying VPN config into container..."
 pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
 
+msg_info "Verifying /etc/wireguard/vpn.conf inside container..."
+pct exec $CTID -- ls -l /etc/wireguard/vpn.conf
+
 msg_info "Generating setup.sh inside container..."
 
 pct exec $CTID -- bash -c "cat > /root/setup.sh" <<EOF
