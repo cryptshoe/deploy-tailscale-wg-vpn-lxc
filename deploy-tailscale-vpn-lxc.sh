@@ -101,7 +101,6 @@ set -euo pipefail
 VPN_CONF=\"/etc/wireguard/vpn.conf\"
 TS_AUTH_KEY=\"${TS_AUTH_KEY}\"
 SUBNETS=\"${SUBNETS}\"
-TAILSCALE_ARGS=\"--advertise-exit-node --advertise-routes=\$SUBNETS\"
 VPN_INTERFACE=\"wg0\"
 TS_DEV=\"tailscale0\"
 
@@ -122,35 +121,16 @@ echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
 echo \"Defining RANDOM_UUID...\"
 RANDOM_UUID=\$(uuidgen)
 
-echo \"Installing Tailscale from official repo for this OS...\"
-ID=\$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '\"')
-VER=\$(grep ^VERSION_CODENAME= /etc/os-release | cut -d= -f2 | tr -d '\"')
-
-curl -fsSL https://pkgs.tailscale.com/stable/\${ID}/\${VER}.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null
-
-echo \"deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/\${ID} \${VER} main\" | tee /etc/apt/sources.list.d/tailscale.list
-
-apt-get update -qq
-apt-get install -y tailscale
-
-echo \"Enabling IP forwarding...\"
-cat <<EOT >/etc/sysctl.d/90-forwarding.conf
-net.ipv4.ip_forward=1
-net.ipv6.conf.all.forwarding=1
-EOT
-sysctl -p /etc/sysctl.d/90-forwarding.conf
-
 if [ ! -f \"\$VPN_CONF\" ]; then
   echo \"ERROR: Missing VPN WireGuard config at \$VPN_CONF\"
   exit 1
 fi
 
 systemctl enable wg-quick@vpn
-
 systemctl enable --now tailscaled
 
 echo \"Starting Tailscale with auth key...\"
-tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=true
+tailscale up --authkey=\"\${TS_AUTH_KEY}\" --advertise-exit-node --advertise-routes=\"\${SUBNETS}\" --accept-routes=true --accept-dns=true
 
 echo \"Setting up iptables rules...\"
 iptables -t nat -F
@@ -172,7 +152,7 @@ Wants=network-online.target wg-quick@vpn.service tailscaled.service
 Type=oneshot
 ExecStartPre=/bin/sleep 5
 ExecStartPre=/usr/bin/tailscale down
-ExecStart=/usr/bin/tailscale up --authkey=\${TS_AUTH_KEY} \${TAILSCALE_ARGS} --accept-routes=true --accept-dns=true
+ExecStart=/usr/bin/tailscale up --authkey=\${TS_AUTH_KEY} --advertise-exit-node --advertise-routes=\"\${SUBNETS}\" --accept-routes=true --accept-dns=true
 ExecStartPost=/usr/sbin/iptables -t nat -F
 ExecStartPost=/usr/sbin/iptables -F
 ExecStartPost=/usr/sbin/iptables -t nat -A POSTROUTING -j MASQUERADE
@@ -184,13 +164,13 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 SERVICE
 
-echo \"Reloading systemd and enabling services...\"
 systemctl daemon-reload
 systemctl enable tailscaled
 systemctl enable tailscale-vpn-exit
 
 echo \"Setup complete.\"
 EOF
+
 
 msg_info "Making setup script executable and running it inside the container..."
 pct exec $CTID -- chmod +x /root/setup.sh
