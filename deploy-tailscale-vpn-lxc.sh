@@ -116,6 +116,10 @@ SUBNETS=\"${SUBNETS}\"
 VPN_INTERFACE=\"wg0\"
 TS_DEV=\"tailscale0\"
 
+# fallback if DNS is poisoned or blocked
+ORIG_RESOLV="/etc/resolv.conf"
+BACKUP_RESOLV="/tmp/resolv.conf.backup"
+
 echo \"Installing dependencies and locales...\"
 apt-get update -qq
 apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf uuid-runtime
@@ -125,10 +129,6 @@ locale-gen
 update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-
-# fallback if DNS is poisoned or blocked
-ORIG_RESOLV="/etc/resolv.conf"
-BACKUP_RESOLV="/tmp/resolv.conf.backup"
 
 if ! dig +short pkgs.tailscale.com | grep -qvE "^127\.|^0\.0\.0\.0$"; then
   echo "[INFO] DNS resolution for pkgs.tailscale.com failed (blocked or redirected)."
