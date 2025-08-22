@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 
@@ -9,18 +9,15 @@ echo "Proxmox LXC Tailscale + WireGuard VPN Node Deployment Script"
 read -rp "Enter desired LXC container ID (number, e.g. 100): " CTID
 read -rp "Enter hostname for the LXC container (e.g. tailscale-vpn-node): " HOSTNAME
 
-# Validate container ID is numeric
 if ! [[ "$CTID" =~ ^[0-9]+$ ]]; then
   msg_error "Container ID must be a number."
   exit 1
 fi
 
-# If hostname is empty, fallback to default
 if [[ -z "$HOSTNAME" ]]; then
   HOSTNAME="tailscale-vpn-node"
 fi
 
-# Prompt user for input variables
 read -rp "Path to VPN WireGuard config file (local, e.g. /root/vpn.conf): " VPN_CONF_PATH
 if [[ ! -f "$VPN_CONF_PATH" ]]; then
   msg_error "VPN config file not found at $VPN_CONF_PATH"
@@ -30,18 +27,15 @@ fi
 read -rp "Enter your Tailscale Auth Key: " TS_AUTH_KEY
 read -rp "Enter LAN subnets to advertise (comma-separated, e.g. 192.168.0.0/24,10.0.0.0/24): " SUBNETS
 
-# Prompt for root password
 read -rsp "Enter root password for the LXC container: " CT_PASSWORD
 echo
 read -rsp "Confirm root password: " CT_PASSWORD_CONFIRM
 echo
-
 if [ "$CT_PASSWORD" != "$CT_PASSWORD_CONFIRM" ]; then
   echo "Error: Passwords do not match."
   exit 1
 fi
 
-# Default variables for container creation
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 MEMORY=512
@@ -65,16 +59,22 @@ pct create $CTID $TEMPLATE \
 CONFIG_FILE="/etc/pve/lxc/${CTID}.conf"
 echo "Configuring container $CTID for TUN device access..."
 
-echo "lxc.cgroup2.devices.allow = c 10:200 rwm" >> $CONFIG_FILE
-echo "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file" >> $CONFIG_FILE
-echo "lxc.apparmor.profile = unconfined" >> $CONFIG_FILE
-echo "lxc.cap.drop =" >> $CONFIG_FILE
+grep -qxF "lxc.cgroup2.devices.allow = c 10:200 rwm" "$CONFIG_FILE" || echo "lxc.cgroup2.devices.allow = c 10:200 rwm" >> "$CONFIG_FILE"
+grep -qxF "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file" "$CONFIG_FILE" || echo "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file" >> "$CONFIG_FILE"
+grep -qxF "lxc.apparmor.profile = unconfined" "$CONFIG_FILE" || echo "lxc.apparmor.profile = unconfined" >> "$CONFIG_FILE"
+grep -qxF "lxc.cap.drop =" "$CONFIG_FILE" || echo "lxc.cap.drop =" >> "$CONFIG_FILE"
+
+msg_info "Setting DNS servers for container..."
+pct set $CTID --nameserver 1.1.1.1
 
 msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
 
-# --- Set root password inside the container ---
+msg_info "Fixing DNS inside container temporarily..."
+pct exec $CTID -- bash -c 'cp /etc/resolv.conf /tmp/resolv.conf.backup; echo "nameserver 1.1.1.1" > /etc/resolv.conf'
+
+msg_info "Setting root password..."
 pct exec $CTID -- bash -c "echo root:${CT_PASSWORD} | chpasswd"
 
 msg_info "Creating /etc/wireguard directory inside container..."
@@ -99,14 +99,32 @@ TAILSCALE_ARGS="--advertise-exit-node --advertise-routes=\$SUBNETS"
 VPN_INTERFACE="wg0"
 TS_DEV="tailscale0"
 
-echo "Updating system and installing dependencies..."
-apt-get update && apt-get install -y curl gnupg lsb-release iptables wireguard resolvconf
+echo "Installing locales and fixing locale settings..."
+apt-get update -qq
+apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf
+
+sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
+locale-gen
+update-locale LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
 
 echo "Fixing DNS inside container temporarily..."
+# Restore backup resolv.conf if present and use Cloudflare DNS for install
+cp /tmp/resolv.conf.backup /etc/resolv.conf 2>/dev/null || true
 echo "nameserver 1.1.1.1" > /etc/resolv.conf
 
-echo "Installing Tailscale using the official install script..."
-curl -fsSL https://tailscale.com/install.sh | sh
+# Detect OS info for correct repo
+ID=\$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d \")
+VER=\$(grep ^VERSION_CODENAME= /etc/os-release | cut -d= -f2 | tr -d \")
+
+echo "Installing Tailscale from official repo for \${ID} \${VER}..."
+curl -fsSL https://pkgs.tailscale.com/stable/\${ID}/\${VER}.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+
+echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/\${ID} \${VER} main" | tee /etc/apt/sources.list.d/tailscale.list
+
+apt-get update -qq
+apt-get install -y tailscale
 
 echo "Enabling IP forwarding..."
 cat <<EOT >/etc/sysctl.d/90-forwarding.conf
@@ -115,7 +133,7 @@ net.ipv6.conf.all.forwarding=1
 EOT
 sysctl -p /etc/sysctl.d/90-forwarding.conf
 
-if [ ! -f "\$VPN_CONF" ]; then
+if [ ! -f \"\$VPN_CONF\" ]; then
   echo "ERROR: Missing VPN WireGuard config at \$VPN_CONF"
   exit 1
 fi
@@ -171,6 +189,9 @@ EOF
 msg_info "Making setup script executable and running it inside the container..."
 pct exec $CTID -- chmod +x /root/setup.sh
 pct exec $CTID -- /root/setup.sh
+
+msg_info "Restoring original DNS configuration inside container..."
+pct exec $CTID -- bash -c 'if [ -f /tmp/resolv.conf.backup ]; then mv /tmp/resolv.conf.backup /etc/resolv.conf; fi'
 
 msg_info "Finalizing by starting VPN and Tailscale exit services..."
 pct exec $CTID -- systemctl start wg-quick@vpn
