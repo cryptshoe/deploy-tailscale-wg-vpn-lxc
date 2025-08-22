@@ -70,6 +70,9 @@ echo "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file" >> $CONF
 echo "lxc.apparmor.profile = unconfined" >> $CONFIG_FILE
 echo "lxc.cap.drop =" >> $CONFIG_FILE
 
+echo "Setting DNS servers and search domain for container..."
+pct set $CTID --nameserver 9.9.9.9,1.1.1.1
+
 msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
