@@ -105,14 +105,8 @@ apt-get update && apt-get install -y curl gnupg lsb-release iptables wireguard r
 echo "Fixing DNS inside container temporarily..."
 echo "nameserver 1.1.1.1" > /etc/resolv.conf
 
-echo "Installing Tailscale from official repo..."
-
-curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-
-echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" | tee /etc/apt/sources.list.d/tailscale.list
-
-apt-get update
-apt-get install -y tailscale
+echo "Installing Tailscale using the official install script..."
+curl -fsSL https://tailscale.com/install.sh | sh
 
 echo "Enabling IP forwarding..."
 cat <<EOT >/etc/sysctl.d/90-forwarding.conf
