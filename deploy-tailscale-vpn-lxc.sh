@@ -20,7 +20,7 @@ fi
 
 read -rp "Path to VPN WireGuard config file (local, e.g. /root/vpn.conf): " VPN_CONF_PATH
 if [[ ! -f "$VPN_CONF_PATH" ]]; then
-  echo "ERROR: Missing VPN WireGuard config at $VPN_CONF"
+  msg_error "VPN config file not found at $VPN_CONF_PATH"
   exit 1
 fi
 
@@ -35,6 +35,7 @@ if [ "$CT_PASSWORD" != "$CT_PASSWORD_CONFIRM" ]; then
   echo "Error: Passwords do not match."
   exit 1
 fi
+
 
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
@@ -83,14 +84,25 @@ pct exec $CTID -- mkdir -p /etc/wireguard
 msg_info "Copying VPN config into container..."
 pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
 
+msg_info "Changing vpn.conf permissions..."
+pct exec $CTID -- bash -c 'chown root:root /etc/wireguard/vpn.conf && chmod 600 /etc/wireguard/vpn.conf'
+
 msg_info "Verifying /etc/wireguard/vpn.conf inside container..."
 pct exec $CTID -- ls -l /etc/wireguard/vpn.conf
 
-msg_info "Validating VPN config file presence inside container..."
-pct exec $CTID -- bash -c 'test -f /etc/wireguard/vpn.conf' || {
-  msg_error "ERROR: Missing VPN WireGuard config at /etc/wireguard/vpn.conf inside container!"
-  exit 1
-}
+msg_info "Waiting for VPN config file presence inside container (retry up to 5 times)..."
+pct exec $CTID -- bash -c '
+for i in {1..5}; do
+  if [ -f /etc/wireguard/vpn.conf ]; then
+    echo "VPN config found on attempt $i"
+    exit 0
+  fi
+  echo "VPN config not found on attempt $i, retrying..."
+  sleep 1
+done
+echo "ERROR: VPN config file /etc/wireguard/vpn.conf missing after retries"
+exit 1
+'
 
 msg_info "Generating setup.sh inside container..."
 
@@ -118,8 +130,8 @@ echo \"Fixing DNS temporarily...\"
 cp /tmp/resolv.conf.backup /etc/resolv.conf 2>/dev/null || true
 echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
 
-echo \"changing vpn.conf permissions...\"
-chmod 600 /etc/wireguard/vpn.conf
+echo \"Defining RANDOM_UUID...\"
+RANDOM_UUID=\$(uuidgen)
 
 if [ ! -f \"\$VPN_CONF\" ]; then
   echo \"ERROR: Missing VPN WireGuard config at \$VPN_CONF\"
@@ -164,13 +176,13 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 SERVICE
 
+echo \"Reloading systemd and enabling services...\"
 systemctl daemon-reload
 systemctl enable tailscaled
 systemctl enable tailscale-vpn-exit
 
 echo \"Setup complete.\"
 EOF
-
 
 msg_info "Making setup script executable and running it inside the container..."
 pct exec $CTID -- chmod +x /root/setup.sh
