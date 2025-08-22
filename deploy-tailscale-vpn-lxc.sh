@@ -106,6 +106,9 @@ exit 1
 
 SUBNETS=${SUBNETS//\"/}
 
+msg_info "Restarting container $CTID to apply new config..."
+pct restart $CTID
+sleep 5
 
 msg_info "Generating setup.sh inside container..."
 
