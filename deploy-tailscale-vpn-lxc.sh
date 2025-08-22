@@ -139,7 +139,7 @@ systemctl enable wg-quick@vpn
 systemctl enable --now tailscaled
 
 echo \"Starting Tailscale with auth key...\"
-tailscale up --authkey=\"\${TS_AUTH_KEY}\" --advertise-exit-node --advertise-routes=\"\${SUBNETS}\" --accept-routes=true --accept-dns=true
+tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=true
 
 echo \"Setting up iptables rules...\"
 iptables -t nat -F
