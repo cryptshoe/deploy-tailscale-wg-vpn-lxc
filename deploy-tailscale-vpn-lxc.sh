@@ -104,6 +104,9 @@ echo "ERROR: VPN config file /etc/wireguard/vpn.conf missing after retries"
 exit 1
 '
 
+SUBNETS=${SUBNETS//\"/}
+
+
 msg_info "Generating setup.sh inside container..."
 
 pct exec $CTID -- bash -c "cat > /root/setup.sh" <<EOF
