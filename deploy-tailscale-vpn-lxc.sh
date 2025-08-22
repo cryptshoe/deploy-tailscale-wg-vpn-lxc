@@ -86,22 +86,28 @@ pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
 msg_info "Verifying /etc/wireguard/vpn.conf inside container..."
 pct exec $CTID -- ls -l /etc/wireguard/vpn.conf
 
+msg_info "Validating VPN config file presence inside container..."
+pct exec $CTID -- bash -c 'test -f /etc/wireguard/vpn.conf' || {
+  msg_error "ERROR: Missing VPN WireGuard config at /etc/wireguard/vpn.conf inside container!"
+  exit 1
+}
+
 msg_info "Generating setup.sh inside container..."
 
 pct exec $CTID -- bash -c "cat > /root/setup.sh" <<EOF
 #!/bin/bash
-set -e
+set -euo pipefail
 
-VPN_CONF="/etc/wireguard/vpn.conf"
-TS_AUTH_KEY="${TS_AUTH_KEY}"
-SUBNETS="${SUBNETS}"
-TAILSCALE_ARGS="--advertise-exit-node --advertise-routes=\$SUBNETS"
-VPN_INTERFACE="wg0"
-TS_DEV="tailscale0"
+VPN_CONF=\"/etc/wireguard/vpn.conf\"
+TS_AUTH_KEY=\"${TS_AUTH_KEY}\"
+SUBNETS=\"${SUBNETS}\"
+TAILSCALE_ARGS=\"--advertise-exit-node --advertise-routes=\$SUBNETS\"
+VPN_INTERFACE=\"wg0\"
+TS_DEV=\"tailscale0\"
 
-echo "Installing locales and fixing locale settings..."
+echo \"Installing dependencies and locales...\"
 apt-get update -qq
-apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf
+apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf uuid-runtime
 
 sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
 locale-gen
@@ -109,24 +115,25 @@ update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-echo "Fixing DNS inside container temporarily..."
-# Restore backup resolv.conf if present and use Cloudflare DNS for install
+echo \"Fixing DNS temporarily...\"
 cp /tmp/resolv.conf.backup /etc/resolv.conf 2>/dev/null || true
-echo "nameserver 1.1.1.1" > /etc/resolv.conf
+echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
 
-# Detect OS info for correct repo
-ID=\$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d \")
-VER=\$(grep ^VERSION_CODENAME= /etc/os-release | cut -d= -f2 | tr -d \")
+echo \"Defining RANDOM_UUID...\"
+RANDOM_UUID=\$(uuidgen)
 
-echo "Installing Tailscale from official repo for \${ID} \${VER}..."
-curl -fsSL https://pkgs.tailscale.com/stable/\${ID}/\${VER}.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+echo \"Installing Tailscale from official repo for this OS...\"
+ID=\$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '\"')
+VER=\$(grep ^VERSION_CODENAME= /etc/os-release | cut -d= -f2 | tr -d '\"')
 
-echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/\${ID} \${VER} main" | tee /etc/apt/sources.list.d/tailscale.list
+curl -fsSL https://pkgs.tailscale.com/stable/\${ID}/\${VER}.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null
+
+echo \"deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/\${ID} \${VER} main\" | tee /etc/apt/sources.list.d/tailscale.list
 
 apt-get update -qq
 apt-get install -y tailscale
 
-echo "Enabling IP forwarding..."
+echo \"Enabling IP forwarding...\"
 cat <<EOT >/etc/sysctl.d/90-forwarding.conf
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
@@ -134,7 +141,7 @@ EOT
 sysctl -p /etc/sysctl.d/90-forwarding.conf
 
 if [ ! -f \"\$VPN_CONF\" ]; then
-  echo "ERROR: Missing VPN WireGuard config at \$VPN_CONF"
+  echo \"ERROR: Missing VPN WireGuard config at \$VPN_CONF\"
   exit 1
 fi
 
@@ -142,11 +149,10 @@ systemctl enable wg-quick@vpn
 
 systemctl enable --now tailscaled
 
-echo "Starting up Tailscale with auth key..."
+echo \"Starting Tailscale with auth key...\"
 tailscale up --authkey=\${TS_AUTH_KEY} \${TAILSCALE_ARGS} --accept-routes=true --accept-dns=true
 
-echo "Setting up iptables rules..."
-
+echo \"Setting up iptables rules...\"
 iptables -t nat -F
 iptables -F
 
@@ -154,7 +160,7 @@ iptables -t nat -A POSTROUTING -o \$VPN_INTERFACE -j MASQUERADE
 iptables -A FORWARD -i \$TS_DEV -o \$VPN_INTERFACE -j ACCEPT
 iptables -A FORWARD -i \$VPN_INTERFACE -o \$TS_DEV -j ACCEPT
 
-echo "Creating tailscale-vpn-exit systemd service..."
+echo \"Creating tailscale-vpn-exit systemd service...\"
 
 cat <<SERVICE > /etc/systemd/system/tailscale-vpn-exit.service
 [Unit]
@@ -169,21 +175,21 @@ ExecStartPre=/usr/bin/tailscale down
 ExecStart=/usr/bin/tailscale up --authkey=\${TS_AUTH_KEY} \${TAILSCALE_ARGS} --accept-routes=true --accept-dns=true
 ExecStartPost=/usr/sbin/iptables -t nat -F
 ExecStartPost=/usr/sbin/iptables -F
-ExecStartPost=/usr/sbin/iptables -t nat -A POSTROUTING -o \$VPN_INTERFACE -j MASQUERADE
-ExecStartPost=/usr/sbin/iptables -A FORWARD -i \$TS_DEV -o \$VPN_INTERFACE -j ACCEPT
-ExecStartPost=/usr/sbin/iptables -A FORWARD -i \$VPN_INTERFACE -o \$TS_DEV -j ACCEPT
+ExecStartPost=/usr/sbin/iptables -t nat -A POSTROUTING -j MASQUERADE
+ExecStartPost=/usr/sbin/iptables -A FORWARD -i \$TS_DEV -j ACCEPT
+ExecStartPost=/usr/sbin/iptables -A FORWARD -i \$VPN_INTERFACE -j ACCEPT
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 SERVICE
 
-echo "Reloading systemd and enabling services..."
+echo \"Reloading systemd and enabling services...\"
 systemctl daemon-reload
 systemctl enable tailscaled
 systemctl enable tailscale-vpn-exit
 
-echo "Setup complete. Reboot the container or start services manually."
+echo \"Setup complete.\"
 EOF
 
 msg_info "Making setup script executable and running it inside the container..."
@@ -193,7 +199,7 @@ pct exec $CTID -- /root/setup.sh
 msg_info "Restoring original DNS configuration inside container..."
 pct exec $CTID -- bash -c 'if [ -f /tmp/resolv.conf.backup ]; then mv /tmp/resolv.conf.backup /etc/resolv.conf; fi'
 
-msg_info "Finalizing by starting VPN and Tailscale exit services..."
+msg_info "Starting VPN and Tailscale services..."
 pct exec $CTID -- systemctl start wg-quick@vpn
 pct exec $CTID -- systemctl start tailscaled
 pct exec $CTID -- systemctl start tailscale-vpn-exit
