@@ -138,6 +138,17 @@ echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://
 apt-get update -qq
 apt-get install -y tailscale
 
+# Enable IP forwarding
+cat <<EOF > /etc/sysctl.d/99-tailscale.conf
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+EOF
+
+sysctl --system
+
+# Disable GRO and GSO on eth0 for better UDP forwarding (optional)
+ethtool -K eth0 gro off gso off || true
+
 systemctl enable wg-quick@vpn
 systemctl enable --now tailscaled
 
