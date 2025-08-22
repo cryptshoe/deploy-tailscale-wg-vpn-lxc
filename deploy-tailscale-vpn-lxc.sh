@@ -149,6 +149,20 @@ ethtool -K eth0 gro off gso off || true
 systemctl enable wg-quick@vpn
 systemctl enable --now tailscaled
 
+# Wait for tailscaled to be active (max 30s)
+for i in {1..30}; do
+  if systemctl is-active --quiet tailscaled; then
+    echo "tailscaled is active"
+    break
+  fi
+  echo "Waiting for tailscaled to start..."
+  sleep 1
+done
+if ! systemctl is-active --quiet tailscaled; then
+  echo "Error: tailscaled failed to start"
+  exit 1
+fi
+
 echo \"Starting Tailscale with auth key...\"
 tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=true
 
