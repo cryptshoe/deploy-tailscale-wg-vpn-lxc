@@ -100,7 +100,7 @@ VPN_INTERFACE="wg0"
 TS_DEV="tailscale0"
 
 echo "Updating system and installing dependencies..."
-apt-get update && apt-get install -y curl gnupg lsb-release iptables wireguard
+apt-get update && apt-get install -y curl gnupg lsb-release iptables wireguard resolvconf
 
 echo "Installing Tailscale..."
 curl -fsSL https://tailscale.com/install.sh | sh
