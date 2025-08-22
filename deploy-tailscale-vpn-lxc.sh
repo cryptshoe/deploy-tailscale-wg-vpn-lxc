@@ -70,9 +70,6 @@ echo "lxc.mount.entry = /dev/net/tun dev/net/tun none bind,create=file" >> $CONF
 echo "lxc.apparmor.profile = unconfined" >> $CONFIG_FILE
 echo "lxc.cap.drop =" >> $CONFIG_FILE
 
-echo "Setting DNS servers and search domain for container..."
-pct set $CTID --nameserver 1.1.1.1
-
 msg_info "Starting container $CTID..."
 pct start $CTID
 sleep 5
@@ -106,7 +103,7 @@ echo "Updating system and installing dependencies..."
 apt-get update && apt-get install -y curl gnupg lsb-release iptables wireguard resolvconf
 
 echo "Fixing DNS inside container temporarily..."
-pct exec $CTID -- bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
+echo "nameserver 1.1.1.1" > /etc/resolv.conf
 
 echo "Installing Tailscale from official repo..."
 
