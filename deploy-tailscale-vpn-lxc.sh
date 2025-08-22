@@ -20,7 +20,7 @@ fi
 
 read -rp "Path to VPN WireGuard config file (local, e.g. /root/vpn.conf): " VPN_CONF_PATH
 if [[ ! -f "$VPN_CONF_PATH" ]]; then
-  msg_error "VPN config file not found at $VPN_CONF_PATH"
+  echo "ERROR: Missing VPN WireGuard config at $VPN_CONF"
   exit 1
 fi
 
