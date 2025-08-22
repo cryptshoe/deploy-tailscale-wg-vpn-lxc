@@ -119,7 +119,7 @@ cp /tmp/resolv.conf.backup /etc/resolv.conf 2>/dev/null || true
 echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
 
 echo \"Defining RANDOM_UUID...\"
-RANDOM_UUID=\$(uuidgen)
+RANDOM_UUID=$(uuidgen)
 
 if [ ! -f \"\$VPN_CONF\" ]; then
   echo \"ERROR: Missing VPN WireGuard config at \$VPN_CONF\"
