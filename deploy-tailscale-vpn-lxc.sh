@@ -77,6 +77,9 @@ sleep 5
 # --- Set root password inside the container ---
 pct exec $CTID -- bash -c "echo root:${CT_PASSWORD} | chpasswd"
 
+msg_info "Creating /etc/wireguard directory inside container..."
+pct exec $CTID -- mkdir -p /etc/wireguard
+
 msg_info "Copying VPN config into container..."
 pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
 
