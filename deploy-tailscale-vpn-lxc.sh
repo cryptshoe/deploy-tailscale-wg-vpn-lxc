@@ -118,6 +118,8 @@ echo \"Fixing DNS temporarily...\"
 cp /tmp/resolv.conf.backup /etc/resolv.conf 2>/dev/null || true
 echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
 
+echo \"changing vpn.conf permissions...\"
+chmod 600 /etc/wireguard/vpn.conf
 
 if [ ! -f \"\$VPN_CONF\" ]; then
   echo \"ERROR: Missing VPN WireGuard config at \$VPN_CONF\"
