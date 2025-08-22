@@ -126,15 +126,26 @@ update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-echo \"Fixing DNS temporarily...\"
-cp /tmp/resolv.conf.backup /etc/resolv.conf 2>/dev/null || true
-echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
+# fallback if DNS is poisoned or blocked
+ORIG_RESOLV="/etc/resolv.conf"
+BACKUP_RESOLV="/tmp/resolv.conf.backup"
 
-echo \"Defining RANDOM_UUID...\"
-RANDOM_UUID=\$(uuidgen)
+if ! dig +short pkgs.tailscale.com | grep -qvE "^127\.|^0\.0\.0\.0$"; then
+  echo "[INFO] DNS resolution for pkgs.tailscale.com failed (blocked or redirected)."
+  echo "[INFO] Temporarily overriding /etc/resolv.conf with Cloudflare DNS (1.1.1.1)"
+  cp "$ORIG_RESOLV" "$BACKUP_RESOLV"
+  echo "nameserver 1.1.1.1" >"$ORIG_RESOLV"
+fi
 
+# Add Tailscale package signing key and repo (adjust for your OS/Version)
+ID=$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '"')
+VER=$(grep ^VERSION_CODENAME= /etc/os-release | cut -d= -f2 | tr -d '"')
 
+curl -fsSL https://pkgs.tailscale.com/stable/${ID}/${VER}.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${ID} ${VER} main" | tee /etc/apt/sources.list.d/tailscale.list
 
+apt-get update -qq
+apt-get install -y tailscale
 
 systemctl enable wg-quick@vpn
 systemctl enable --now tailscaled
