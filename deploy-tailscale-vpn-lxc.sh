@@ -116,10 +116,6 @@ SUBNETS=\"${SUBNETS}\"
 VPN_INTERFACE=\"wg0\"
 TS_DEV=\"tailscale0\"
 
-# fallback if DNS is poisoned or blocked
-ORIG_RESOLV="/etc/resolv.conf"
-BACKUP_RESOLV="/tmp/resolv.conf.backup"
-
 echo \"Installing dependencies and locales...\"
 apt-get update -qq
 apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf uuid-runtime
@@ -129,13 +125,6 @@ locale-gen
 update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-
-echo "Fixing DNS temporarily..."
-# Backup original DNS resolv.conf if not backed up yet
-if [ ! -f "\$BACKUP_RESOLV" ]; then
-  cp "\$ORIG_RESOLV" "\$BACKUP_RESOLV"
-fi
-echo "nameserver 1.1.1.1" > "\$ORIG_RESOLV"
 
 # Add Tailscale package signing key and repo (adjust for your OS/Version)
 ID=$(grep ^ID= /etc/os-release | cut -d= -f2 | tr -d '"')
