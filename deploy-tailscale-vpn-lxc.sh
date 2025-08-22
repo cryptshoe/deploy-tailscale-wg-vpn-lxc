@@ -124,7 +124,7 @@ TS_DEV=\"tailscale0\"
 
 echo \"Installing dependencies and locales...\"
 apt-get update -qq
-apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf uuid-runtime
+apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf 
 
 sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
 locale-gen
