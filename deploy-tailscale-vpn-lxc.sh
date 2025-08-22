@@ -133,26 +133,7 @@ echo \"nameserver 1.1.1.1\" > /etc/resolv.conf
 echo \"Defining RANDOM_UUID...\"
 RANDOM_UUID=\$(uuidgen)
 
-echo \"DEBUG: Listing /etc/wireguard before config check:\"
-ls -al /etc/wireguard/
 
-chmod 600 /etc/wireguard/vpn.conf
-chown root:root /etc/wireguard/vpn.conf
-
-echo \"Checking for VPN config file with retries...\"
-for i in {1..5}; do
-  if [ -f \"\$VPN_CONF\" ]; then
-    echo \"VPN config found on attempt \$i\"
-    break
-  fi
-  echo \"VPN config not found on attempt \$i, retrying...\"
-  sleep 1
-done
-
-if [ ! -f \"\$VPN_CONF\" ]; then
-  echo \"ERROR: Missing VPN WireGuard config at \$VPN_CONF\"
-  exit 1
-fi
 
 
 systemctl enable wg-quick@vpn
