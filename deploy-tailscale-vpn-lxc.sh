@@ -161,7 +161,7 @@ Wants=network-online.target wg-quick@vpn.service tailscaled.service
 Type=oneshot
 ExecStartPre=/bin/sleep 5
 ExecStartPre=/usr/bin/tailscale down
-ExecStart=/usr/bin/tailscale up --authkey=\${TS_AUTH_KEY} --advertise-exit-node --advertise-routes=\"\${SUBNETS}\" --accept-routes=true --accept-dns=true
+ExecStart=/usr/bin/tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=true
 ExecStartPost=/usr/sbin/iptables -t nat -F
 ExecStartPost=/usr/sbin/iptables -F
 ExecStartPost=/usr/sbin/iptables -t nat -A POSTROUTING -j MASQUERADE
