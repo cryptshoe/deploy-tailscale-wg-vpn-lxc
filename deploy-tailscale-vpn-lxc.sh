@@ -108,7 +108,8 @@ TS_DEV="tailscale0"
 
 echo "Installing dependencies and locales..."
 apt-get update -qq
-apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf openssh-client
+apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf openssh-client ethtool networkd-dispatcher
+
 sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
 locale-gen
 update-locale LANG=en_US.UTF-8
@@ -124,9 +125,25 @@ echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://
 apt-get update -qq
 apt-get install -y tailscale
 
+echo "Enabling persistent IP forwarding..."
+echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+echo "Setting up persistent UDP GRO optimization..."
+NETDEV=\$(ip -o route get 8.8.8.8 | awk '{print \$5}')
+mkdir -p /etc/networkd-dispatcher/routable.d
+cat <<SCRIPT >/etc/networkd-dispatcher/routable.d/50-tailscale
+#!/bin/sh
+ethtool -K \$NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+SCRIPT
+chmod +x /etc/networkd-dispatcher/routable.d/50-tailscale
+# Apply immediately
+ethtool -K \$NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+
 sysctl --system || true
 
-# Disable GRO and GSO on eth0 for better UDP forwarding (optional)
+# Disable GRO and GSO on eth0 for immediate improvement (optional but recommended)
 ethtool -K eth0 gro off gso off || true
 
 systemctl enable wg-quick@vpn
