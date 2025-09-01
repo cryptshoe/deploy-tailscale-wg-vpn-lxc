@@ -165,7 +165,12 @@ if ! systemctl is-active --quiet tailscaled; then
 fi
 
 echo "Starting Tailscale with auth key..."
-tailscale up --authkey="\${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="\${SUBNETS}" --accept-routes=true --accept-dns=true
+# Add delay to ensure tailscaled fully active
+sleep 10
+# Run tailscale up with no DNS acceptance flag and verbose for debugging
+timeout 60 tailscale up --authkey="\${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="\${SUBNETS}" --accept-routes=true --accept-dns=false --verbose || {
+  echo "Warning: tailscale up command timed out or failed, please check container logs."
+}
 
 echo "Setting up iptables rules..."
 iptables -t nat -F
