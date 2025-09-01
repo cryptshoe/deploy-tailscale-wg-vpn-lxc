@@ -172,12 +172,33 @@ timeout 60 tailscale up --authkey="\${TS_AUTH_KEY}" --advertise-exit-node --adve
   echo "Warning: tailscale up command timed out or failed, please check container logs."
 }
 
-echo "Setting up iptables rules..."
+# Enable IP forwarding (persistently)
+echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
+sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+# Setup NAT and forwarding rules
 iptables -t nat -F
 iptables -F
-iptables -t nat -A POSTROUTING -o \$VPN_INTERFACE -j MASQUERADE
-iptables -A FORWARD -i \$TS_DEV -o \$VPN_INTERFACE -j ACCEPT
-iptables -A FORWARD -i \$VPN_INTERFACE -o \$TS_DEV -j ACCEPT
+
+# Masquerade traffic going out of the WireGuard tunnel
+iptables -t nat -A POSTROUTING -o wg0 -j MASQUERADE
+
+# Forward packets between tailscale0 and WireGuard wg0
+iptables -A FORWARD -i tailscale0 -o wg0 -j ACCEPT
+iptables -A FORWARD -i wg0 -o tailscale0 -j ACCEPT
+
+# Forward between tailscale0 and LAN (eth0) for subnet traffic (except default route traffic)
+for subnet in $(echo "$SUBNETS" | tr ',' ' '); do
+  iptables -A FORWARD -i tailscale0 -o eth0 -d $subnet -j ACCEPT
+  iptables -A FORWARD -i eth0 -o tailscale0 -s $subnet -j ACCEPT
+
+  # Ensure LAN subnet routes go via eth0 interface
+  ip route add $subnet dev eth0 || true
+done
+
+# Set default route via WireGuard interface (wg0)
+ip route replace default dev wg0 || true
 
 echo "Creating tailscale-vpn-exit systemd service..."
 cat <<SERVICE > /etc/systemd/system/tailscale-vpn-exit.service
