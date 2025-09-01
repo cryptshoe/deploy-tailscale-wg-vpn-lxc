@@ -195,7 +195,7 @@ msg_info "Waiting for SSH accessibility on $CONTAINER_IP..."
 max_ssh_attempts=15
 ssh_ok=0
 for i in $(seq 1 "$max_ssh_attempts"); do
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@"$CONTAINER_IP" echo ok &>/dev/null; then
+  if sshpass -p "$CT_PASSWORD" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@"$CONTAINER_IP" echo ok &>/dev/null; then
     echo "SSH available on $CONTAINER_IP"
     ssh_ok=1
     break
@@ -206,31 +206,10 @@ done
 
 if [ "$ssh_ok" -eq 0 ]; then
   echo "ERROR: SSH still not accessible on $CONTAINER_IP after $max_ssh_attempts attempts."
-  echo "Running container diagnostics..."
-
-  echo "--- SSH service status ---"
-  pct exec $CTID -- systemctl status ssh || pct exec $CTID -- systemctl status sshd
-
-  echo "--- SSHD listening ports ---"
-  pct exec $CTID -- ss -tlnp | grep :22 || echo "No process listening on port 22"
-
-  echo "--- Restarting SSH service ---"
-  pct exec $CTID -- systemctl restart ssh || pct exec $CTID -- systemctl restart sshd
-
-  echo "--- Recent auth and syslog entries ---"
-  pct exec $CTID -- tail -n 20 /var/log/auth.log || echo "No auth.log found"
-  pct exec $CTID -- tail -n 20 /var/log/syslog || echo "No syslog found"
-
-  echo "--- Enable nesting feature (for compatibility) ---"
-  pct set $CTID -features nesting=1
-
-  echo "--- Restart container ---"
-  pct restart $CTID
-
-  echo "After diagnostics/fixes, please retry SSH manually:"
-  echo "ssh -vvv root@$CONTAINER_IP"
+  # ... (diagnostics block here)
   exit 1
 fi
+
 
 msg_info "Copying setup script to container via SCP..."
 scp -o StrictHostKeyChecking=no setup.sh root@"$CONTAINER_IP":/root/setup.sh
