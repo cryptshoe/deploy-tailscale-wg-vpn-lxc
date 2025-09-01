@@ -190,6 +190,9 @@ EOF
 
 chmod +x setup.sh
 
+msg_info "Make sure sshpass is installed on the Proxmox host"
+apt-get install sshpass
+
 msg_info "Waiting for SSH accessibility on $CONTAINER_IP..."
 
 max_ssh_attempts=15
@@ -212,10 +215,10 @@ fi
 
 
 msg_info "Copying setup script to container via SCP..."
-scp -o StrictHostKeyChecking=no setup.sh root@"$CONTAINER_IP":/root/setup.sh
+sshpass -p "$CT_PASSWORD" scp -o StrictHostKeyChecking=no setup.sh root@"$CONTAINER_IP":/root/setup.sh
 
 msg_info "Running setup script inside the container via SSH..."
-ssh -o StrictHostKeyChecking=no root@"$CONTAINER_IP" "bash /root/setup.sh"
+sshpass -p "$CT_PASSWORD" ssh -o StrictHostKeyChecking=no root@"$CONTAINER_IP" "bash /root/setup.sh"
 
 msg_info "Restoring original DNS configuration inside container..."
 pct exec $CTID -- bash -c 'if [ -f /tmp/resolv.conf.backup ]; then mv /tmp/resolv.conf.backup /etc/resolv.conf; fi'
