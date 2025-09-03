@@ -96,7 +96,7 @@ pct exec $CTID -- bash -c 'chown root:root /etc/wireguard/vpn.conf && chmod 600 
 SUBNETS=${SUBNETS//\"/}
 
 # Create the setup.sh script locally to be SCP'ed into the container with detailed verbose logging
-cat > setup.sh <<'EOF'
+cat > setup.sh <<EOF
 #!/bin/bash
 set -euxo pipefail
 
