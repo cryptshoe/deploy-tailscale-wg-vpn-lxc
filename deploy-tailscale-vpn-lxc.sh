@@ -2,7 +2,6 @@
 set -euxo pipefail
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 echo "Proxmox LXC Tailscale + WireGuard VPN Node Deployment Script"
-
 # Prompt for input as before
 read -rp "Enter desired LXC container ID (number, e.g. 100): " CTID
 read -rp "Enter hostname for the LXC container (e.g. tailscale-vpn-node): " HOSTNAME
@@ -28,10 +27,9 @@ if [ "$CT_PASSWORD" != "$CT_PASSWORD_CONFIRM" ]; then
   echo "Error: Passwords do not match."
   exit 1
 fi
-apt-get update && apt-get install -y uuid-runtime
 
+apt-get update && apt-get install -y uuid-runtime sshpass
 RANDOM_UUID=$(uuidgen || echo fallback-uuid)
-
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 MEMORY=512
@@ -39,7 +37,6 @@ CPU=1
 DISK=4
 BRIDGE="vmbr0"
 UNPRIVILEGED=0
-
 header_info "Tailscale WireGuard VPN Node"
 echo "Creating LXC container $CTID with hostname $HOSTNAME..."
 pct create $CTID $TEMPLATE \
@@ -91,10 +88,33 @@ if [[ -z "$CONTAINER_IP" ]]; then
   exit 1
 fi
 
-msg_info "Copying WireGuard VPN config to container..."
-pct exec $CTID -- mkdir -p /etc/wireguard
-pct push $CTID "$VPN_CONF_PATH" /etc/wireguard/vpn.conf
-pct exec $CTID -- bash -c 'chown root:root /etc/wireguard/vpn.conf && chmod 600 /etc/wireguard/vpn.conf'
+msg_info "Waiting for SSH accessibility on $CONTAINER_IP..."
+max_ssh_attempts=15
+ssh_ok=0
+set -x
+for i in $(seq 1 "$max_ssh_attempts"); do
+  if sshpass -p "$CT_PASSWORD" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@"$CONTAINER_IP" echo ok &>/dev/null; then
+    echo "SSH available on $CONTAINER_IP"
+    ssh_ok=1
+    break
+  fi
+  echo "Waiting for SSH to become available... ($i)"
+  sleep 3
+done
+set +x
+if [ "$ssh_ok" -eq 0 ]; then
+  echo "ERROR: SSH still not accessible on $CONTAINER_IP after $max_ssh_attempts attempts."
+  exit 1
+fi
+
+msg_info "Creating /etc/wireguard directory inside container via SSH..."
+sshpass -p "$CT_PASSWORD" ssh -o StrictHostKeyChecking=no root@"$CONTAINER_IP" "mkdir -p /etc/wireguard"
+
+msg_info "Copying WireGuard VPN config to container via SCP..."
+sshpass -p "$CT_PASSWORD" scp -o StrictHostKeyChecking=no "$VPN_CONF_PATH" root@"$CONTAINER_IP":/etc/wireguard/vpn.conf
+
+msg_info "Setting permissions on wireguard config file via SSH..."
+sshpass -p "$CT_PASSWORD" ssh -o StrictHostKeyChecking=no root@"$CONTAINER_IP" "chown root:root /etc/wireguard/vpn.conf && chmod 600 /etc/wireguard/vpn.conf"
 
 SUBNETS=${SUBNETS//\"/}
 
