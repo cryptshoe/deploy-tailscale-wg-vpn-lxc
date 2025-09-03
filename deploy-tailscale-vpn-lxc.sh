@@ -102,9 +102,16 @@ set -euxo pipefail
 
 exec > >(tee -a /var/log/setup-script.log) 2>&1
 
+# Ensure RANDOM_UUID is defined upfront
+if ! command -v uuidgen &> /dev/null; then
+  apt-get update && apt-get install -y uuid-runtime
+fi
+RANDOM_UUID=$(uuidgen)
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Generated RANDOM_UUID=${RANDOM_UUID}"
+
 VPN_CONF="/etc/wireguard/vpn.conf"
-TS_AUTH_KEY="${TS_AUTH_KEY}"
-SUBNETS="${SUBNETS}"
+TS_AUTH_KEY="${TS_AUTH_KEY:-}"
+SUBNETS="${SUBNETS:-}"
 VPN_INTERFACE="wg0"
 TS_DEV="tailscale0"
 
@@ -133,16 +140,20 @@ echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up persistent UDP GRO optimization..."
-NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}')
-mkdir -p /etc/networkd-dispatcher/routable.d
-cat <<SCRIPT >/etc/networkd-dispatcher/routable.d/50-tailscale
+NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}' || echo "")
+if [[ -z "$NETDEV" ]]; then
+  echo "Warning: NETDEV not found, skipping ethtool UDP GRO optimizations."
+else
+  mkdir -p /etc/networkd-dispatcher/routable.d
+  cat <<SCRIPT >/etc/networkd-dispatcher/routable.d/50-tailscale
 #!/bin/sh
 ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
 SCRIPT
-chmod +x /etc/networkd-dispatcher/routable.d/50-tailscale
+  chmod +x /etc/networkd-dispatcher/routable.d/50-tailscale
 
-# Apply immediately
-ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+  # Apply immediately
+  ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+fi
 
 sysctl --system || true
 
@@ -168,9 +179,7 @@ if ! systemctl is-active --quiet tailscaled; then
 fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting Tailscale with auth key..."
-# Add delay to ensure tailscaled fully active
 sleep 10
-# Run tailscale up with no DNS acceptance flag and verbose for debugging
 timeout 60 tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=false --verbose || {
   echo "Warning: tailscale up command timed out or failed, please check container logs."
 }
@@ -185,24 +194,19 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up iptables routing and forwarding.
 iptables -t nat -F
 iptables -F
 
-# Masquerade traffic going out of the WireGuard tunnel
 iptables -t nat -A POSTROUTING -o $VPN_INTERFACE -j MASQUERADE
 
-# Forward packets between tailscale0 and WireGuard wg0 interface
 iptables -A FORWARD -i $TS_DEV -o $VPN_INTERFACE -j ACCEPT
 iptables -A FORWARD -i $VPN_INTERFACE -o $TS_DEV -j ACCEPT
 
-# Forward between tailscale0 and LAN (eth0) for subnet traffic
 subnets="${SUBNETS:-}"
 for subnet in $(echo "$subnets" | tr ',' ' '); do
   echo "Configuring forwarding and routes for subnet: $subnet"
   iptables -A FORWARD -i $TS_DEV -o eth0 -d $subnet -j ACCEPT
   iptables -A FORWARD -i eth0 -o $TS_DEV -s $subnet -j ACCEPT
-  # Ensure LAN subnet routes go via eth0 interface
   ip route add $subnet dev eth0 || true
 done
 
-# Set default route via WireGuard interface (wg0)
 ip route replace default dev $VPN_INTERFACE || true
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - IP routing and iptables setup complete."
@@ -236,6 +240,7 @@ systemctl enable tailscaled
 systemctl enable tailscale-vpn-exit
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Setup complete."
+
 EOF
 
 chmod +x setup.sh
