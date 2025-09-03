@@ -29,6 +29,8 @@ if [ "$CT_PASSWORD" != "$CT_PASSWORD_CONFIRM" ]; then
   exit 1
 fi
 
+RANDOM_UUID=$(uuidgen || echo fallback-uuid)
+
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
 MEMORY=512
