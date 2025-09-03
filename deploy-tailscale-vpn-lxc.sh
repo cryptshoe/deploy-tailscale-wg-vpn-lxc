@@ -28,6 +28,7 @@ if [ "$CT_PASSWORD" != "$CT_PASSWORD_CONFIRM" ]; then
   echo "Error: Passwords do not match."
   exit 1
 fi
+apt-get update && apt-get install -y uuid-runtime
 
 RANDOM_UUID=$(uuidgen || echo fallback-uuid)
 
