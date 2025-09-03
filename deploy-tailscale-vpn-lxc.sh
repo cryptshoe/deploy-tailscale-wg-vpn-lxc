@@ -102,13 +102,6 @@ set -euxo pipefail
 
 exec > >(tee -a /var/log/setup-script.log) 2>&1
 
-# Ensure RANDOM_UUID is defined upfront
-if ! command -v uuidgen &> /dev/null; then
-  apt-get update && apt-get install -y uuid-runtime
-fi
-RANDOM_UUID=$(uuidgen)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Generated RANDOM_UUID=${RANDOM_UUID}"
-
 VPN_CONF="/etc/wireguard/vpn.conf"
 TS_AUTH_KEY="${TS_AUTH_KEY:-}"
 SUBNETS="${SUBNETS:-}"
