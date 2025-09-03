@@ -173,7 +173,7 @@ fi
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting Tailscale with auth key..."
 sleep 10
-timeout 60 tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=false --verbose || {
+timeout 60 tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=false || {
   echo "Warning: tailscale up command timed out or failed, please check container logs."
 }
 
