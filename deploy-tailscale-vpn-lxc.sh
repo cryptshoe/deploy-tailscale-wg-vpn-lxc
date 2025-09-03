@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 echo "Proxmox LXC Tailscale + WireGuard VPN Node Deployment Script"
 
@@ -95,10 +95,12 @@ pct exec $CTID -- bash -c 'chown root:root /etc/wireguard/vpn.conf && chmod 600 
 
 SUBNETS=${SUBNETS//\"/}
 
-# Create the setup.sh script locally to be SCP'ed into the container
-cat > setup.sh <<EOF
+# Create the setup.sh script locally to be SCP'ed into the container with detailed verbose logging
+cat > setup.sh <<'EOF'
 #!/bin/bash
-set -euo pipefail
+set -euxo pipefail
+
+exec > >(tee -a /var/log/setup-script.log) 2>&1
 
 VPN_CONF="/etc/wireguard/vpn.conf"
 TS_AUTH_KEY="${TS_AUTH_KEY}"
@@ -106,9 +108,9 @@ SUBNETS="${SUBNETS}"
 VPN_INTERFACE="wg0"
 TS_DEV="tailscale0"
 
-echo "Installing dependencies and locales..."
-apt-get update -qq
-apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf openssh-client ethtool networkd-dispatcher
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Installing dependencies and locales..."
+apt-get update -y -o Debug::pkgProblemResolver=true
+apt-get install -y -o Debug::pkgProblemResolver=true locales curl gnupg lsb-release iptables wireguard resolvconf openssh-client ethtool networkd-dispatcher
 
 sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
 locale-gen
@@ -116,30 +118,31 @@ update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-echo "Restarting networking service before adding Tailscale repo..."
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Restarting networking service before adding Tailscale repo..."
 systemctl restart networking || true
 
 curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
 echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" | tee /etc/apt/sources.list.d/tailscale.list
 
-apt-get update -qq
-apt-get install -y tailscale
+apt-get update -y -o Debug::pkgProblemResolver=true
+apt-get install -y -o Debug::pkgProblemResolver=true tailscale
 
-echo "Enabling persistent IP forwarding..."
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Enabling persistent IP forwarding..."
 echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 
-echo "Setting up persistent UDP GRO optimization..."
-NETDEV=\$(ip -o route get 8.8.8.8 | awk '{print \$5}')
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up persistent UDP GRO optimization..."
+NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}')
 mkdir -p /etc/networkd-dispatcher/routable.d
 cat <<SCRIPT >/etc/networkd-dispatcher/routable.d/50-tailscale
 #!/bin/sh
-ethtool -K \$NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
 SCRIPT
 chmod +x /etc/networkd-dispatcher/routable.d/50-tailscale
+
 # Apply immediately
-ethtool -K \$NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
 
 sysctl --system || true
 
@@ -149,13 +152,13 @@ ethtool -K eth0 gro off gso off || true
 systemctl enable wg-quick@vpn
 systemctl enable --now tailscaled
 
-# Wait up to 30s for tailscaled service to be active
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Waiting for tailscaled service to be active..."
 for i in {1..30}; do
   if systemctl is-active --quiet tailscaled; then
     echo "tailscaled is active"
     break
   fi
-  echo "Waiting for tailscaled to start..."
+  echo "Waiting for tailscaled to start... ($i)"
   sleep 1
 done
 
@@ -164,41 +167,45 @@ if ! systemctl is-active --quiet tailscaled; then
   exit 1
 fi
 
-echo "Starting Tailscale with auth key..."
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting Tailscale with auth key..."
 # Add delay to ensure tailscaled fully active
 sleep 10
 # Run tailscale up with no DNS acceptance flag and verbose for debugging
-timeout 60 tailscale up --authkey="\${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="\${SUBNETS}" --accept-routes=true --accept-dns=false --verbose || {
+timeout 60 tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=false --verbose || {
   echo "Warning: tailscale up command timed out or failed, please check container logs."
 }
 
-# Enable IP forwarding (persistently)
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Enabling IP forwarding again (persistently)..."
 echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 
-# Setup NAT and forwarding rules
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up iptables routing and forwarding..."
+
 iptables -t nat -F
 iptables -F
 
 # Masquerade traffic going out of the WireGuard tunnel
-iptables -t nat -A POSTROUTING -o wg0 -j MASQUERADE
+iptables -t nat -A POSTROUTING -o $VPN_INTERFACE -j MASQUERADE
 
-# Forward packets between tailscale0 and WireGuard wg0
-iptables -A FORWARD -i tailscale0 -o wg0 -j ACCEPT
-iptables -A FORWARD -i wg0 -o tailscale0 -j ACCEPT
+# Forward packets between tailscale0 and WireGuard wg0 interface
+iptables -A FORWARD -i $TS_DEV -o $VPN_INTERFACE -j ACCEPT
+iptables -A FORWARD -i $VPN_INTERFACE -o $TS_DEV -j ACCEPT
 
-# Forward between tailscale0 and LAN (eth0) for subnet traffic (except default route traffic)
-for subnet in $(echo "$SUBNETS" | tr ',' ' '); do
-  iptables -A FORWARD -i tailscale0 -o eth0 -d $subnet -j ACCEPT
-  iptables -A FORWARD -i eth0 -o tailscale0 -s $subnet -j ACCEPT
-
+# Forward between tailscale0 and LAN (eth0) for subnet traffic
+subnets="${SUBNETS:-}"
+for subnet in $(echo "$subnets" | tr ',' ' '); do
+  echo "Configuring forwarding and routes for subnet: $subnet"
+  iptables -A FORWARD -i $TS_DEV -o eth0 -d $subnet -j ACCEPT
+  iptables -A FORWARD -i eth0 -o $TS_DEV -s $subnet -j ACCEPT
   # Ensure LAN subnet routes go via eth0 interface
   ip route add $subnet dev eth0 || true
 done
 
 # Set default route via WireGuard interface (wg0)
-ip route replace default dev wg0 || true
+ip route replace default dev $VPN_INTERFACE || true
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - IP routing and iptables setup complete."
 
 echo "Creating tailscale-vpn-exit systemd service..."
 cat <<SERVICE > /etc/systemd/system/tailscale-vpn-exit.service
@@ -211,12 +218,12 @@ Wants=network-online.target wg-quick@vpn.service tailscaled.service
 Type=oneshot
 ExecStartPre=/bin/sleep 5
 ExecStartPre=/usr/bin/tailscale down
-ExecStart=/usr/bin/tailscale up --authkey="\${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="\${SUBNETS}" --accept-routes=true --accept-dns=true
+ExecStart=/usr/bin/tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=true
 ExecStartPost=/usr/sbin/iptables -t nat -F
 ExecStartPost=/usr/sbin/iptables -F
 ExecStartPost=/usr/sbin/iptables -t nat -A POSTROUTING -j MASQUERADE
-ExecStartPost=/usr/sbin/iptables -A FORWARD -i \$TS_DEV -j ACCEPT
-ExecStartPost=/usr/sbin/iptables -A FORWARD -i \$VPN_INTERFACE -j ACCEPT
+ExecStartPost=/usr/sbin/iptables -A FORWARD -i $TS_DEV -j ACCEPT
+ExecStartPost=/usr/sbin/iptables -A FORWARD -i $VPN_INTERFACE -j ACCEPT
 RemainAfterExit=yes
 
 [Install]
@@ -228,18 +235,18 @@ systemctl daemon-reload
 systemctl enable tailscaled
 systemctl enable tailscale-vpn-exit
 
-echo "Setup complete."
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Setup complete."
 EOF
 
 chmod +x setup.sh
 
 msg_info "Make sure sshpass is installed on the Proxmox host"
-apt-get install sshpass
+apt-get install -y sshpass
 
 msg_info "Waiting for SSH accessibility on $CONTAINER_IP..."
-
 max_ssh_attempts=15
 ssh_ok=0
+set -x
 for i in $(seq 1 "$max_ssh_attempts"); do
   if sshpass -p "$CT_PASSWORD" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@"$CONTAINER_IP" echo ok &>/dev/null; then
     echo "SSH available on $CONTAINER_IP"
@@ -249,13 +256,12 @@ for i in $(seq 1 "$max_ssh_attempts"); do
   echo "Waiting for SSH to become available... ($i)"
   sleep 3
 done
+set +x
 
 if [ "$ssh_ok" -eq 0 ]; then
   echo "ERROR: SSH still not accessible on $CONTAINER_IP after $max_ssh_attempts attempts."
-  # ... (diagnostics block here)
   exit 1
 fi
-
 
 msg_info "Copying setup script to container via SCP..."
 sshpass -p "$CT_PASSWORD" scp -o StrictHostKeyChecking=no setup.sh root@"$CONTAINER_IP":/root/setup.sh
