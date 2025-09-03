@@ -125,6 +125,13 @@ set -euxo pipefail
 
 exec > >(tee -a /var/log/setup-script.log) 2>&1
 
+# Initialize DIAGNOSTICS safely to avoid unbound variable errors
+DIAGNOSTICS="${DIAGNOSTICS:-}"
+
+# Determine network device and assign safely
+NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}' || echo "")
+NETDEV="${NETDEV:-}"
+
 VPN_CONF="/etc/wireguard/vpn.conf"
 TS_AUTH_KEY="${TS_AUTH_KEY:-}"
 SUBNETS="${SUBNETS:-}"
@@ -156,7 +163,6 @@ echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up persistent UDP GRO optimization..."
-NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}' || echo "")
 if [[ -z "$NETDEV" ]]; then
   echo "Warning: NETDEV not found, skipping ethtool UDP GRO optimizations."
 else
@@ -166,14 +172,11 @@ else
 ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
 SCRIPT
   chmod +x /etc/networkd-dispatcher/routable.d/50-tailscale
-
-  # Apply immediately
   ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
 fi
 
 sysctl --system || true
 
-# Disable GRO and GSO on eth0 for immediate improvement (optional but recommended)
 ethtool -K eth0 gro off gso off || true
 
 systemctl enable wg-quick@vpn
