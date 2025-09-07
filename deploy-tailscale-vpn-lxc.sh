@@ -122,74 +122,68 @@ SUBNETS=${SUBNETS//\"/}
 cat > setup.sh <<EOF
 #!/bin/bash
 set -euxo pipefail
-
 exec > >(tee -a /var/log/setup-script.log) 2>&1
 
-# Initialize DIAGNOSTICS safely to avoid unbound variable errors
-DIAGNOSTICS="${DIAGNOSTICS:-}"
-NETDEV="${NETDEV:-}"
-
-# Determine network device and assign safely
-NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}' || echo "")
-NETDEV="${NETDEV:-}"
-
+# Defensive initialization to avoid unbound errors
+DIAGNOSTICS="\${DIAGNOSTICS:-}"
+NETDEV="\$(ip -o route get 8.8.8.8 2>/dev/null | awk '{print \$5}' || echo '')"
+NETDEV="\${NETDEV:-}"
 VPN_CONF="/etc/wireguard/vpn.conf"
-TS_AUTH_KEY="${TS_AUTH_KEY:-}"
-SUBNETS="${SUBNETS:-}"
+TS_AUTH_KEY="\${TS_AUTH_KEY:-}"
+SUBNETS="\${SUBNETS:-}"
 VPN_INTERFACE="wg0"
 TS_DEV="tailscale0"
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Installing dependencies and locales..."
-apt-get update -y -o Debug::pkgProblemResolver=true
-apt-get install -y -o Debug::pkgProblemResolver=true locales curl gnupg lsb-release iptables wireguard resolvconf openssh-client ethtool networkd-dispatcher
-
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Installing dependencies and locales..."
+apt-get update -y
+apt-get install -y locales curl gnupg lsb-release iptables wireguard resolvconf openssh-client ethtool networkd-dispatcher
 sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
 locale-gen
 update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Restarting networking service before adding Tailscale repo..."
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Restarting networking service before adding Tailscale repo..."
 systemctl restart networking || true
 
+# Correct curl command for GPG key without brackets
 curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
 echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" | tee /etc/apt/sources.list.d/tailscale.list
 
-apt-get update -y -o Debug::pkgProblemResolver=true
-apt-get install -y -o Debug::pkgProblemResolver=true tailscale
+apt-get update -y
+apt-get install -y tailscale
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Enabling persistent IP forwarding..."
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Enabling persistent IP forwarding..."
 echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up persistent UDP GRO optimization..."
-if [[ -z "$NETDEV" ]]; then
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Setting up persistent UDP GRO optimization..."
+if [[ -z "\$NETDEV" ]]; then
   echo "Warning: NETDEV not found, skipping ethtool UDP GRO optimizations."
 else
   mkdir -p /etc/networkd-dispatcher/routable.d
   cat <<SCRIPT >/etc/networkd-dispatcher/routable.d/50-tailscale
 #!/bin/sh
-ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+ethtool -K \$NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
 SCRIPT
   chmod +x /etc/networkd-dispatcher/routable.d/50-tailscale
-  ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off || true
+  ethtool -K "\$NETDEV" rx-udp-gro-forwarding on rx-gro-list off || true
 fi
 
 sysctl --system || true
-
 ethtool -K eth0 gro off gso off || true
 
 systemctl enable wg-quick@vpn
 systemctl enable --now tailscaled
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Waiting for tailscaled service to be active..."
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Waiting for tailscaled service to be active..."
 for i in {1..30}; do
   if systemctl is-active --quiet tailscaled; then
     echo "tailscaled is active"
     break
   fi
-  echo "Waiting for tailscaled to start... ($i)"
+  echo "Waiting for tailscaled to start... (\$i)"
   sleep 1
 done
 
@@ -198,38 +192,35 @@ if ! systemctl is-active --quiet tailscaled; then
   exit 1
 fi
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting Tailscale with auth key..."
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Starting Tailscale with auth key..."
 sleep 10
-timeout 60 tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=false || {
+
+timeout 60 tailscale up --authkey="\$TS_AUTH_KEY" --advertise-exit-node --advertise-routes="\$SUBNETS" --accept-routes=true --accept-dns=false || {
   echo "Warning: tailscale up command timed out or failed, please check container logs."
 }
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Enabling IP forwarding again (persistently)..."
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Enabling IP forwarding again (persistently)..."
 echo 'net.ipv4.ip_forward = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 echo 'net.ipv6.conf.all.forwarding = 1' | tee -a /etc/sysctl.d/99-tailscale.conf
 sysctl -p /etc/sysctl.d/99-tailscale.conf
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Setting up iptables routing and forwarding..."
-
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Setting up iptables routing and forwarding..."
 iptables -t nat -F
 iptables -F
+iptables -t nat -A POSTROUTING -o "\$VPN_INTERFACE" -j MASQUERADE
+iptables -A FORWARD -i "\$TS_DEV" -o "\$VPN_INTERFACE" -j ACCEPT
+iptables -A FORWARD -i "\$VPN_INTERFACE" -o "\$TS_DEV" -j ACCEPT
 
-iptables -t nat -A POSTROUTING -o $VPN_INTERFACE -j MASQUERADE
-
-iptables -A FORWARD -i $TS_DEV -o $VPN_INTERFACE -j ACCEPT
-iptables -A FORWARD -i $VPN_INTERFACE -o $TS_DEV -j ACCEPT
-
-subnets="${SUBNETS:-}"
-for subnet in $(echo "$subnets" | tr ',' ' '); do
-  echo "Configuring forwarding and routes for subnet: $subnet"
-  iptables -A FORWARD -i $TS_DEV -o eth0 -d $subnet -j ACCEPT
-  iptables -A FORWARD -i eth0 -o $TS_DEV -s $subnet -j ACCEPT
-  ip route add $subnet dev eth0 || true
+subnets="\${SUBNETS:-}"
+for subnet in \$(echo "\$subnets" | tr ',' ' '); do
+  echo "Configuring forwarding and routes for subnet: \$subnet"
+  iptables -A FORWARD -i "\$TS_DEV" -o eth0 -d "\$subnet" -j ACCEPT
+  iptables -A FORWARD -i eth0 -o "\$TS_DEV" -s "\$subnet" -j ACCEPT
+  ip route add "\$subnet" dev eth0 || true
 done
 
-ip route replace default dev $VPN_INTERFACE || true
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - IP routing and iptables setup complete."
+ip route replace default dev "\$VPN_INTERFACE" || true
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - IP routing and iptables setup complete."
 
 echo "Creating tailscale-vpn-exit systemd service..."
 cat <<SERVICE > /etc/systemd/system/tailscale-vpn-exit.service
@@ -242,12 +233,12 @@ Wants=network-online.target wg-quick@vpn.service tailscaled.service
 Type=oneshot
 ExecStartPre=/bin/sleep 5
 ExecStartPre=/usr/bin/tailscale down
-ExecStart=/usr/bin/tailscale up --authkey="${TS_AUTH_KEY}" --advertise-exit-node --advertise-routes="${SUBNETS}" --accept-routes=true --accept-dns=true
+ExecStart=/usr/bin/tailscale up --authkey="\$TS_AUTH_KEY" --advertise-exit-node --advertise-routes="\$SUBNETS" --accept-routes=true --accept-dns=true
 ExecStartPost=/usr/sbin/iptables -t nat -F
 ExecStartPost=/usr/sbin/iptables -F
 ExecStartPost=/usr/sbin/iptables -t nat -A POSTROUTING -j MASQUERADE
-ExecStartPost=/usr/sbin/iptables -A FORWARD -i $TS_DEV -j ACCEPT
-ExecStartPost=/usr/sbin/iptables -A FORWARD -i $VPN_INTERFACE -j ACCEPT
+ExecStartPost=/usr/sbin/iptables -A FORWARD -i "\$TS_DEV" -j ACCEPT
+ExecStartPost=/usr/sbin/iptables -A FORWARD -i "\$VPN_INTERFACE" -j ACCEPT
 RemainAfterExit=yes
 
 [Install]
@@ -259,9 +250,9 @@ systemctl daemon-reload
 systemctl enable tailscaled
 systemctl enable tailscale-vpn-exit
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Setup complete."
-
+echo "\$(date '+%Y-%m-%d %H:%M:%S') - Setup complete."
 EOF
+
 
 chmod +x setup.sh
 
