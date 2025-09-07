@@ -127,6 +127,7 @@ exec > >(tee -a /var/log/setup-script.log) 2>&1
 
 # Initialize DIAGNOSTICS safely to avoid unbound variable errors
 DIAGNOSTICS="${DIAGNOSTICS:-}"
+NETDEV="${NETDEV:-}"
 
 # Determine network device and assign safely
 NETDEV=$(ip -o route get 8.8.8.8 | awk '{print $5}' || echo "")
